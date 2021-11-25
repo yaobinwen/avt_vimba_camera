@@ -78,8 +78,8 @@ enum CameraState {
 class AvtVimbaCamera {
  public:
   AvtVimbaCamera();
-  AvtVimbaCamera(std::string name);
-  void start(std::string ip_str, std::string guid_str, bool debug_prints = true);
+  AvtVimbaCamera(const std::string& name);
+  void start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id, bool debug_prints = true);
   void stop();
   double getTimestamp(void);
   double getTimestampRealTime(VmbUint64_t timestamp_ticks);
@@ -90,10 +90,8 @@ class AvtVimbaCamera {
     return vimba_camera_ptr_;
   }
 
-  int getWidth();
-  int getHeight();
-  int getMaxWidth();
-  int getMaxHeight();
+  int getSensorWidth();
+  int getSensorHeight();
 
   // Pass callback function pointer
   typedef boost::function<void (const FramePtr)> frameCallbackFunc;
@@ -154,6 +152,10 @@ class AvtVimbaCamera {
 
   template<typename T>
   bool setFeatureValue(const std::string& feature_str, const T& val);
+  template<typename T>
+  bool setGetFeatureValue(const std::string& feature_str, const T& val_in, T& val_out);
+  template<typename Vimba_Type, typename Std_Type>
+  void configureFeature(const std::string& feature_str, const Vimba_Type& val_in, Std_Type& val_out);
   template<typename T>
   bool getFeatureValue(const std::string& feature_str, T& val);
   bool getFeatureValue(const std::string& feature_str, std::string& val);
