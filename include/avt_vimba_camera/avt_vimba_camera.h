@@ -79,7 +79,7 @@ class AvtVimbaCamera {
  public:
   AvtVimbaCamera();
   AvtVimbaCamera(const std::string& name);
-  void start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id, bool debug_prints = true);
+  void start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id, bool print_all_features = false);
   void stop();
   double getTimestamp(void);
   double getTimestampRealTime(VmbUint64_t timestamp_ticks);
@@ -128,7 +128,6 @@ class AvtVimbaCamera {
   bool opened_;
   bool streaming_;
   bool on_init_;
-  bool show_debug_prints_;
   std::string name_;
 
   diagnostic_updater::Updater updater_;
@@ -142,7 +141,7 @@ class AvtVimbaCamera {
   std::string trigger_source_;
   int trigger_source_int_;
 
-  CameraPtr openCamera(std::string id_str);
+  CameraPtr openCamera(const std::string& id_str, bool print_all_features);
 
   frameCallbackFunc userFrameCallback;
   void frameCallback(const FramePtr vimba_frame_ptr);
@@ -151,17 +150,14 @@ class AvtVimbaCamera {
   }
 
   template<typename T>
-  bool setFeatureValue(const std::string& feature_str, const T& val);
-  template<typename T>
-  bool setGetFeatureValue(const std::string& feature_str, const T& val_in, T& val_out);
+  VmbErrorType setFeatureValue(const std::string& feature_str, const T& val);
   template<typename Vimba_Type, typename Std_Type>
   void configureFeature(const std::string& feature_str, const Vimba_Type& val_in, Std_Type& val_out);
+  void configureFeature(const std::string& feature_str, const std::string& val_in, std::string& val_out);
   template<typename T>
   bool getFeatureValue(const std::string& feature_str, T& val);
   bool getFeatureValue(const std::string& feature_str, std::string& val);
   bool runCommand(const std::string& command_str);
-  std::string interfaceToString(VmbInterfaceType interfaceType);
-  std::string accessModeToString(VmbAccessModeType modeType);
   int getTriggerModeInt(std::string mode_str);
   void printAllCameraFeatures(const CameraPtr& camera);
 

@@ -122,7 +122,6 @@ AvtVimbaCamera::AvtVimbaCamera(const std::string& name) {
   opened_ = false;   // camera connected to the api
   streaming_ = false;  // capturing frames
   on_init_ = true;   // on initialization phase
-  show_debug_prints_ = false;
   name_ = name;
 
   camera_state_ = OPENING;
@@ -132,18 +131,17 @@ AvtVimbaCamera::AvtVimbaCamera(const std::string& name) {
   updater_.update();
 }
 
-void AvtVimbaCamera::start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id, bool debug_prints) {
+void AvtVimbaCamera::start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id, bool print_all_features) {
   if (opened_) return;
 
   frame_id_ = frame_id;
-  show_debug_prints_ = debug_prints;
   updater_.broadcast(0, "Starting device with IP:" + ip_str + " or GUID:" + guid_str);
 
   // Determine which camera to use. Try IP first
   if (!ip_str.empty()) {
     diagnostic_msg_ = "Trying to open camera by IP: " + ip_str;
     ROS_INFO_STREAM("Trying to open camera by IP: " << ip_str);
-    vimba_camera_ptr_ = openCamera(ip_str);
+    vimba_camera_ptr_ = openCamera(ip_str, print_all_features);
     if (!vimba_camera_ptr_) {
       ROS_WARN("Camera pointer is empty. Returning...");
       return;
@@ -168,7 +166,7 @@ void AvtVimbaCamera::start(const std::string& ip_str, const std::string& guid_st
     // Only guid available
     diagnostic_msg_ = "Trying to open camera by ID: " + guid_str;
     ROS_INFO_STREAM("Trying to open camera by ID: " << guid_str);
-    vimba_camera_ptr_ = openCamera(guid_str);
+    vimba_camera_ptr_ = openCamera(guid_str, print_all_features);
     updater_.setHardwareID(guid_str);
     guid_ = guid_str;
   } else {
@@ -220,21 +218,18 @@ void AvtVimbaCamera::startImaging(void) {
     VmbErrorType err =
       vimba_camera_ptr_->StartContinuousImageAcquisition(1,  // num_frames_,
       IFrameObserverPtr(frame_obs_ptr_));
-    if (VmbErrorSuccess == err) {
+    if (err == VmbErrorSuccess) {
       diagnostic_msg_ = "Starting continuous image acquisition";
-      ROS_INFO_STREAM("[" << name_
-        << "]: Starting continuous image acquisition...(" << frame_id_ << ")");
+      ROS_INFO_STREAM("Starting continuous image acquisition ...");
       streaming_ = true;
       camera_state_ = OK;
     } else {
       diagnostic_msg_ = "Could not start continuous image acquisition. Error: " + api_.errorCodeToMessage(err);
-      ROS_ERROR_STREAM("[" << name_
-        << "]: Could not start continuous image acquisition(" << frame_id_ << "). "
-        << "\n Error: " << api_.errorCodeToMessage(err));
+      ROS_ERROR_STREAM("Could not start continuous image acquisition. " << "\n Error: " << api_.errorCodeToMessage(err));
       camera_state_ = ERROR;
     }
   } else {
-    ROS_WARN_STREAM("Start imaging called, but the camera is already imaging(" << frame_id_ << ").");
+    ROS_WARN_STREAM("Start imaging called, but the camera is already imaging.");
   }
   updater_.update();
 }
@@ -243,21 +238,18 @@ void AvtVimbaCamera::stopImaging(void) {
   if (streaming_ || on_init_) {
     VmbErrorType err =
       vimba_camera_ptr_->StopContinuousImageAcquisition();
-    if (VmbErrorSuccess == err) {
+    if (err == VmbErrorSuccess) {
       diagnostic_msg_ = "Acquisition stopped";
-      ROS_INFO_STREAM("[" << name_
-        << "]: Acquisition stoppped... (" << frame_id_ << ")");
+      ROS_INFO_STREAM("Acquisition stoppped ...");
       streaming_ = false;
       camera_state_ = IDLE;
     } else {
       diagnostic_msg_ = "Could not stop image acquisition. Error: " + api_.errorCodeToMessage(err);
-      ROS_ERROR_STREAM("[" << name_
-        << "]: Could not stop image acquisition (" << frame_id_ << ")."
-        << "\n Error: " << api_.errorCodeToMessage(err));
+      ROS_ERROR_STREAM("Could not stop image acquisition." << "\n Error: " << api_.errorCodeToMessage(err));
       camera_state_ = ERROR;
     }
   } else {
-    ROS_WARN_STREAM("Stop imaging called, but the camera is already stopped (" << frame_id_ << ").");
+    ROS_WARN_STREAM("Stop imaging called, but the camera is already stopped.");
   }
   updater_.update();
 }
@@ -274,9 +266,7 @@ void AvtVimbaCamera::updateConfig(Config& config) {
     config_ = config;
   }
   diagnostic_msg_ = "Updating configuration";
-  if(show_debug_prints_) {
-    ROS_INFO_STREAM("Updating configuration for camera " << frame_id_);
-  }
+
   updateExposureConfig(config);
   updateGainConfig(config);
   updateWhiteBalanceConfig(config);
@@ -304,7 +294,7 @@ void AvtVimbaCamera::stop() {
   opened_ = false;
 }
 
-CameraPtr AvtVimbaCamera::openCamera(std::string id_str) {
+CameraPtr AvtVimbaCamera::openCamera(const std::string& id_str, bool print_all_features) {
   // Details:   The ID might be one of the following:
   //            "IP:169.254.12.13",
   //            "MAC:000f31000001",
@@ -320,12 +310,11 @@ CameraPtr AvtVimbaCamera::openCamera(std::string id_str) {
   VmbErrorType err = vimba_system.GetCameraByID(id_str.c_str(), camera);
   while (err != VmbErrorSuccess) {
     if (keepRunning) {
-      ROS_WARN_STREAM("Could not get camera. Retrying every two seconds...");
-      err = vimba_system.GetCameraByID(id_str.c_str(), camera);
+      ROS_WARN_STREAM("Could not find camera using " << id_str << ". Retrying every two seconds ...");
       ros::Duration(2.0).sleep();
+      err = vimba_system.GetCameraByID(id_str.c_str(), camera);
     } else {
-      ROS_ERROR_STREAM("[" << name_
-        << "]: Could not get camera " << id_str
+      ROS_ERROR_STREAM("Could not find camera using " << id_str
         << "\n Error: " << api_.errorCodeToMessage(err));
       camera_state_ = CAMERA_NOT_FOUND;
       return camera;
@@ -336,12 +325,11 @@ CameraPtr AvtVimbaCamera::openCamera(std::string id_str) {
   err = camera->Open(VmbAccessModeFull);
   while (err != VmbErrorSuccess && keepRunning) {
     if (keepRunning) {
-      ROS_WARN_STREAM("Could not open camera. Retrying every two seconds...");
+      ROS_WARN_STREAM("Could not open camera. Retrying every two seconds ...");
       err = camera->Open(VmbAccessModeFull);
       ros::Duration(2.0).sleep();
     } else {
-      ROS_ERROR_STREAM("[" << name_
-        << "]: Could not open camera " << id_str
+      ROS_ERROR_STREAM("Could not open camera " << id_str
         << "\n Error: " << api_.errorCodeToMessage(err));
       camera_state_ = CAMERA_NOT_FOUND;
       return camera;
@@ -351,31 +339,17 @@ CameraPtr AvtVimbaCamera::openCamera(std::string id_str) {
   // set previous handler back
   signal(SIGINT, oldHandler);
 
-  std::string cam_id, cam_name, cam_model, cam_sn, cam_int_id;
-  VmbInterfaceType cam_int_type;
-  VmbAccessModeType accessMode;  // = VmbAccessModeNone;
+  std::string cam_id, cam_name;
   camera->GetID(cam_id);
   camera->GetName(cam_name);
-  camera->GetModel(cam_model);
-  camera->GetSerialNumber(cam_sn);
-  camera->GetInterfaceID(cam_int_id);
-  camera->GetInterfaceType(cam_int_type);
-  err = camera->GetPermittedAccess(accessMode);
-
-  if(show_debug_prints_) {
-    ROS_INFO_STREAM("[" << name_ << "]: Opened camera with"
-    << "\n\t\t * Name     : " << cam_name
-    << "\n\t\t * Model    : " << cam_model
-    << "\n\t\t * ID       : " << cam_id
-    << "\n\t\t * S/N      : " << cam_sn
-    << "\n\t\t * Itf. ID  : " << cam_int_id
-    << "\n\t\t * Itf. Type: " << interfaceToString(cam_int_type)
-    << "\n\t\t * Access   : " << accessModeToString(accessMode));
-  }
+  ROS_INFO_STREAM("Opened connection to camera named " << cam_name << " with ID " << cam_id);
 
   ros::Duration(2.0).sleep();
 
-  printAllCameraFeatures(camera);
+  if (print_all_features)
+  {
+    printAllCameraFeatures(camera);
+  }
   opened_ = true;
   camera_state_ = IDLE;
   return camera;
@@ -395,7 +369,7 @@ void AvtVimbaCamera::frameCallback(const FramePtr vimba_frame_ptr) {
 
 double AvtVimbaCamera::getDeviceTemp(void) {
   double temp = -1.0;
-  if (setFeatureValue("DeviceTemperatureSelector", "Main")) {
+  if (setFeatureValue("DeviceTemperatureSelector", "Main") == VmbErrorSuccess) {
     getFeatureValue("DeviceTemperature", temp);
   }
   return temp;
@@ -449,34 +423,32 @@ double AvtVimbaCamera::getTimestampRealTime(VmbUint64_t timestamp_ticks)
 
 // Template function to SET a feature value from the camera
 template<typename T>
-bool AvtVimbaCamera::setFeatureValue(const std::string& feature_str,
+VmbErrorType AvtVimbaCamera::setFeatureValue(const std::string& feature_str,
                                      const T& val) {
   VmbErrorType err;
   FeaturePtr vimba_feature_ptr;
   err = vimba_camera_ptr_->GetFeatureByName(feature_str.c_str(),
                                             vimba_feature_ptr);
-  if (VmbErrorSuccess == err) {
+  if (err == VmbErrorSuccess) {
     bool writable;
     err = vimba_feature_ptr->IsWritable(writable);
-    if (VmbErrorSuccess == err) {
+    if (err == VmbErrorSuccess) {
       if (writable) {
-        if(show_debug_prints_)
-          ROS_INFO_STREAM("Setting feature " << feature_str << " value " << val);
+        ROS_DEBUG_STREAM("Setting feature " << feature_str << " value " << val);
         VmbFeatureDataType data_type;
         err = vimba_feature_ptr->GetDataType(data_type);
-        if (VmbErrorSuccess == err) {
+        if (err == VmbErrorSuccess) {
           if (data_type == VmbFeatureDataEnum) {
             bool available;
             err = vimba_feature_ptr->IsValueAvailable(val, available);
-            if (VmbErrorSuccess == err) {
+            if (err == VmbErrorSuccess) {
               if (available) {
                 err = vimba_feature_ptr->SetValue(val);
               } else {
-                ROS_WARN_STREAM("[" << name_
-                  << "]: Feature " << feature_str << " is available now.");
+                ROS_WARN_STREAM("Feature " << feature_str << " is available now.");
               }
             } else {
-              ROS_WARN_STREAM("[" << name_ << "]: Feature "
+              ROS_WARN_STREAM("Feature "
                 << feature_str << ": value unavailable\n\tERROR "
                 << api_.errorCodeToMessage(err));
             }
@@ -484,158 +456,171 @@ bool AvtVimbaCamera::setFeatureValue(const std::string& feature_str,
             err = vimba_feature_ptr->SetValue(val);
           }
         } else {
-          ROS_WARN_STREAM("[" << name_ << "]: Feature "
+          ROS_WARN_STREAM("Feature "
             << feature_str << ": Bad data type\n\tERROR "
             << api_.errorCodeToMessage(err));
         }
       } else {
-        ROS_WARN_STREAM("[" << name_ << "]: Feature "
+        ROS_WARN_STREAM("Feature "
                          << feature_str
                          << " is not writable.");
       }
     } else {
-      ROS_WARN_STREAM("[" << name_ << "]: Feature "
+      ROS_WARN_STREAM("Feature "
         << feature_str << ": ERROR " << api_.errorCodeToMessage(err));
     }
   } else {
-    ROS_WARN_STREAM("[" << name_
-      << "]: Could not get feature " << feature_str
-      << "\n Error: " << api_.errorCodeToMessage(err));
+    ROS_WARN_STREAM("Could not get feature " << feature_str << ", your camera probably doesn't support it.");
   }
-  return (VmbErrorSuccess == err);
+  return err;
 }
 
-// Function for setting and then getting feature values, since the camera isn't guaranteed to accept what is sent.
-template<typename T>
-bool AvtVimbaCamera::setGetFeatureValue(const std::string& feature_str, const T& val_in, T& val_out) {
-  bool return_value = true;
-  return_value &= setFeatureValue(feature_str, val_in);
-  return_value &= getFeatureValue(feature_str, val_out);
-
-  return return_value;
-}
-
-// Tries to configure a camera feature, returns true if the value was used,
-// returns false if a different value was used or something failed.
-// Also updates the config value passed in if a different config is in use by the camera.
+// Tries to configure a camera feature.
+// Updates the config value passed in if a different config is in use by the camera.
 template<typename Vimba_Type, typename Std_Type>
 void AvtVimbaCamera::configureFeature(const std::string& feature_str, const Vimba_Type& val_in, Std_Type& val_out) {
   Vimba_Type actual_value;
-  setGetFeatureValue(feature_str, val_in, actual_value);
 
-  if (val_in == actual_value)
+  VmbErrorType return_value = setFeatureValue(feature_str, val_in);
+  if (return_value == VmbErrorSuccess || return_value == VmbErrorInvalidValue)
   {
-    ROS_INFO_STREAM(feature_str << " set to " << actual_value);
+    getFeatureValue(feature_str, actual_value);
+    if (val_in == actual_value)
+    {
+      ROS_INFO_STREAM(" - " << feature_str << " set to " << actual_value);
+    }
+    else
+    {
+      ROS_WARN_STREAM(" - Tried to set " << feature_str << " to " << val_in << " but the camera used " << actual_value << " instead");
+      val_out = static_cast<Std_Type>(actual_value);
+    }
   }
   else
   {
-    ROS_WARN_STREAM("Tried to set " << feature_str << " to " << val_in << " but the camera used " << actual_value << " instead");
-    val_out = static_cast<Std_Type>(actual_value);
+    val_out = static_cast<Std_Type>(val_in);
+  }
+}
+
+// Overloaded for strings, template specialization doesn't currently compile with GCC
+void AvtVimbaCamera::configureFeature(const std::string& feature_str, const std::string& val_in, std::string& val_out) {
+  std::string actual_value;
+
+  VmbErrorType return_value = setFeatureValue(feature_str, val_in.c_str());
+  if (return_value == VmbErrorSuccess || return_value == VmbErrorInvalidValue)
+  {
+    getFeatureValue(feature_str, actual_value);
+    if (val_in == actual_value)
+    {
+      ROS_INFO_STREAM(" - " << feature_str << " set to " << actual_value);
+    }
+    else
+    {
+      ROS_WARN_STREAM(" - Tried to set " << feature_str << " to " << val_in << " but the camera used " << actual_value << " instead");
+      val_out = actual_value;
+    }
+  }
+  else
+  {
+    val_out = val_in;
   }
 }
 
 // Template function to GET a feature value from the camera
 template<typename T>
 bool AvtVimbaCamera::getFeatureValue(const std::string& feature_str, T& val) {
+  ROS_DEBUG_STREAM("Asking for feature " << feature_str);
   VmbErrorType err;
   FeaturePtr vimba_feature_ptr;
   VmbFeatureDataType data_type;
   err = vimba_camera_ptr_->GetFeatureByName(feature_str.c_str(),
                                             vimba_feature_ptr);
-  if (VmbErrorSuccess == err) {
+  if (err == VmbErrorSuccess) {
     bool readable;
     vimba_feature_ptr->IsReadable(readable);
     if (readable) {
       vimba_feature_ptr->GetDataType(data_type);
-      if ( VmbErrorSuccess != err ) {
+      if ( err != VmbErrorSuccess ) {
         std::cout << "[Could not get feature Data Type. Error code: "
                   << err << "]" << std::endl;
       } else {
-        std::string strValue;
         switch ( data_type ) {
           case VmbFeatureDataBool:
-          bool bValue;
-          err = vimba_feature_ptr->GetValue(bValue);
-          if (VmbErrorSuccess == err) {
-            val = static_cast<T>(bValue);
-          }
-          break;
+            bool bValue;
+            err = vimba_feature_ptr->GetValue(bValue);
+            if (err == VmbErrorSuccess) {
+              val = static_cast<T>(bValue);
+            }
+            break;
           case VmbFeatureDataFloat:
-          double fValue;
-          err = vimba_feature_ptr->GetValue(fValue);
-          if (VmbErrorSuccess == err) {
-            val = static_cast<T>(fValue);
-          }
-          break;
+            double fValue;
+            err = vimba_feature_ptr->GetValue(fValue);
+            if (err == VmbErrorSuccess) {
+              val = static_cast<T>(fValue);
+            }
+            break;
           case VmbFeatureDataInt:
-          VmbInt64_t  nValue;
-          err = vimba_feature_ptr->GetValue(nValue);
-          if (VmbErrorSuccess == err) {
-            val = static_cast<T>(nValue);
-          }
-          break;
+            VmbInt64_t  nValue;
+            err = vimba_feature_ptr->GetValue(nValue);
+            if (err == VmbErrorSuccess) {
+              val = static_cast<T>(nValue);
+            }
+            break;
         }
-        if (VmbErrorSuccess != err) {
+        if (err != VmbErrorSuccess) {
           ROS_WARN_STREAM("Could not get feature value. Error code: "
                     << api_.errorCodeToMessage(err));
         }
       }
     } else {
-      ROS_WARN_STREAM("[" << name_ << "]: Feature "
-                       << feature_str
+      ROS_WARN_STREAM("Feature " << feature_str
                        << " is not readable.");
     }
   } else {
     ROS_WARN_STREAM("[" << name_
       << "]: Could not get feature " << feature_str);
   }
-  if (show_debug_prints_)
-    ROS_INFO_STREAM("Asking for feature "
-      << feature_str << " with datatype "
-      << FeatureDataType[data_type]
-      << " and value " << val);
-  return (VmbErrorSuccess == err);
+  return (err == VmbErrorSuccess);
 }
 
 // Function to GET a feature value from the camera, overloaded to strings
-bool AvtVimbaCamera::getFeatureValue(const std::string& feature_str,
-                                     std::string& val) {
+bool AvtVimbaCamera::getFeatureValue(const std::string& feature_str, std::string& val) {
+  ROS_DEBUG_STREAM("Asking for feature " << feature_str);
   VmbErrorType err;
   FeaturePtr vimba_feature_ptr;
   VmbFeatureDataType data_type;
   err = vimba_camera_ptr_->GetFeatureByName(feature_str.c_str(),
                                             vimba_feature_ptr);
-  if (VmbErrorSuccess == err) {
+  if (err == VmbErrorSuccess) {
     bool readable;
     vimba_feature_ptr->IsReadable(readable);
     if (readable) {
       vimba_feature_ptr->GetDataType(data_type);
-      if ( VmbErrorSuccess != err ) {
-        std::cout << "[Could not get feature Data Type. Error code: "
-                  << err << "]" << std::endl;
+      if ( err != VmbErrorSuccess ) {
+        ROS_ERROR_STREAM("[Could not get feature Data Type. Error code: "
+                  << err << "]");
       } else {
         std::string strValue;
         switch ( data_type ) {
           case VmbFeatureDataEnum:
           err = vimba_feature_ptr->GetValue(strValue);
-          if (VmbErrorSuccess == err) {
+          if (err == VmbErrorSuccess) {
             val = strValue;
           }
           break;
           case VmbFeatureDataString:
           err = vimba_feature_ptr->GetValue(strValue);
-          if (VmbErrorSuccess == err) {
+          if (err == VmbErrorSuccess) {
             val = strValue;
           }
           break;
         }
-        if (VmbErrorSuccess != err) {
+        if (err != VmbErrorSuccess) {
           ROS_WARN_STREAM("Could not get feature value. Error code: "
                     << api_.errorCodeToMessage(err));
         }
       }
     } else {
-      ROS_WARN_STREAM("[" << name_ << "]: Feature "
+      ROS_WARN_STREAM("Feature "
                        << feature_str
                        << " is not readable.");
     }
@@ -643,34 +628,26 @@ bool AvtVimbaCamera::getFeatureValue(const std::string& feature_str,
     ROS_WARN_STREAM("[" << name_
       << "]: Could not get feature " << feature_str);
   }
-  if(show_debug_prints_) {
-    ROS_INFO_STREAM("Asking for feature " << feature_str
-      << " with datatype " << FeatureDataType[data_type]
-      << " and value " << val);
-  }
-  return (VmbErrorSuccess == err);
+  return (err == VmbErrorSuccess);
 }
 
 // Template function to RUN a command
 bool AvtVimbaCamera::runCommand(const std::string& command_str) {
   FeaturePtr feature_ptr;
   VmbErrorType err = vimba_camera_ptr_->GetFeatureByName(command_str.c_str(), feature_ptr);
-  if (VmbErrorSuccess == err ) {
+  if (err == VmbErrorSuccess ) {
     err = feature_ptr->RunCommand();
-    if ( VmbErrorSuccess == err ) {
+    if ( err == VmbErrorSuccess ) {
       bool is_command_done = false;
       do {
         err = feature_ptr->IsCommandDone(is_command_done);
-        if ( VmbErrorSuccess != err ) {
+        if ( err != VmbErrorSuccess ) {
           break;
         }
-        if(show_debug_prints_) {
-          ROS_INFO_STREAM_THROTTLE(1, "Waiting for command "
-            << command_str.c_str() << "...");
-        }
+        ROS_DEBUG_STREAM_THROTTLE(1, "Waiting for command "
+          << command_str.c_str() << "...");
       } while ( false == is_command_done );
-      if(show_debug_prints_)
-        ROS_INFO_STREAM("Command " << command_str.c_str() << " done!");
+      ROS_DEBUG_STREAM("Command " << command_str.c_str() << " done!");
       return true;
     } else {
       ROS_WARN_STREAM("[" << name_
@@ -682,33 +659,6 @@ bool AvtVimbaCamera::runCommand(const std::string& command_str) {
       << "]: Could not get feature command " << command_str << ". Error: " << api_.errorCodeToMessage(err));
     return false;
   }
-}
-
-std::string AvtVimbaCamera::interfaceToString(VmbInterfaceType interfaceType) {
-  switch ( interfaceType ) {
-    case VmbInterfaceFirewire: return "FireWire";
-      break;
-    case VmbInterfaceEthernet: return "GigE";
-      break;
-    case VmbInterfaceUsb: return "USB";
-      break;
-    default: return "Unknown";
-  }
-}
-
-std::string AvtVimbaCamera::accessModeToString(VmbAccessModeType modeType) {
-  std::string s;
-  if (modeType & VmbAccessModeFull)
-    s = std::string("Read and write access");
-  else if (modeType & VmbAccessModeRead)
-    s = std::string("Only read access");
-  else if (modeType & VmbAccessModeConfig)
-    s = std::string("Device configuration access");
-  else if (modeType & VmbAccessModeLite)
-    s = std::string("Device read/write access without feature access (only addresses)");
-  else if (modeType & VmbAccessModeNone)
-    s = std::string("No access");
-  return s;
 }
 
 int AvtVimbaCamera::getTriggerModeInt(std::string mode_str) {
@@ -742,7 +692,6 @@ void AvtVimbaCamera::printAllCameraFeatures(const CameraPtr& camera) {
   // The static details of a feature
   std::string strName;           // The name of the feature
   std::string strDisplayName;    // The display name of the feature
-  std::string strTooltip;        // A short description of the feature
   std::string strDescription;    // A long description of the feature
   std::string strCategory;       // A category to group features
   std::string strSFNCNamespace;  // The Std Feature Naming Convention namespace
@@ -757,69 +706,61 @@ void AvtVimbaCamera::printAllCameraFeatures(const CameraPtr& camera) {
 
   // Fetch all features of our cam
   err = camera->GetFeatures(features);
-  if ( VmbErrorSuccess == err ) {
+  if ( err == VmbErrorSuccess ) {
     // Query all static details as well as the value of
     // all fetched features and print them out.
     for (   FeaturePtrVector::const_iterator iter = features.begin();
       features.end() != iter;
       ++iter ) {
       err = (*iter)->GetName(strName);
-      if (VmbErrorSuccess != err) {
+      if (err != VmbErrorSuccess) {
         strError << "[Could not get feature Name. Error code: " << err << "]";
         strName.assign(strError.str());
       }
 
       err = (*iter)->GetDisplayName(strDisplayName);
-      if (VmbErrorSuccess != err) {
+      if (err != VmbErrorSuccess) {
         strError << "[Could not get feature Display Name. Error code: "
                  << err << "]";
         strDisplayName.assign(strError.str());
       }
 
-      err = (*iter)->GetToolTip(strTooltip);
-      if (VmbErrorSuccess != err) {
-        strError << "[Could not get feature Tooltip. Error code: "
-                 << err << "]";
-        strTooltip.assign(strError.str());
-      }
-
       err = (*iter)->GetDescription(strDescription);
-      if (VmbErrorSuccess != err) {
+      if (err != VmbErrorSuccess) {
         strError << "[Could not get feature Description. Error code: "
                  << err << "]";
         strDescription.assign(strError.str());
       }
 
       err = (*iter)->GetCategory(strCategory);
-      if (VmbErrorSuccess != err) {
+      if (err != VmbErrorSuccess) {
         strError << "[Could not get feature Category. Error code: "
                  << err << "]";
         strCategory.assign(strError.str());
       }
 
       err = (*iter)->GetSFNCNamespace(strSFNCNamespace);
-      if (VmbErrorSuccess != err) {
+      if (err != VmbErrorSuccess) {
         strError << "[Could not get feature SNFC Namespace. Error code: "
                  << err << "]";
         strSFNCNamespace.assign(strError.str());
       }
 
       err = (*iter)->GetUnit(strUnit);
-      if (VmbErrorSuccess != err) {
+      if (err != VmbErrorSuccess) {
         strError << "[Could not get feature Unit. Error code: " << err << "]";
         strUnit.assign(strError.str());
       }
 
       std::cout << "/// Feature Name: " << strName << std::endl;
       std::cout << "/// Display Name: " << strDisplayName << std::endl;
-      std::cout << "/// Tooltip: " << strTooltip << std::endl;
       std::cout << "/// Description: " << strDescription << std::endl;
       std::cout << "/// SNFC Namespace: " << strSFNCNamespace << std::endl;
       std::cout << "/// Unit: " << strUnit << std::endl;
       std::cout << "/// Value: ";
 
       err = (*iter)->GetDataType(eType);
-      if ( VmbErrorSuccess != err ) {
+      if ( err != VmbErrorSuccess ) {
         std::cout << "[Could not get feature Data Type. Error code: "
                   << err << "]" << std::endl;
       } else {
@@ -827,33 +768,33 @@ void AvtVimbaCamera::printAllCameraFeatures(const CameraPtr& camera) {
           case VmbFeatureDataBool:
           bool bValue;
           err = (*iter)->GetValue(bValue);
-          if (VmbErrorSuccess == err) {
-            std::cout << bValue << " bool" << std::endl;
+          if (err == VmbErrorSuccess) {
+            std::cout << bValue << " (bool)" << std::endl;
           }
           break;
           case VmbFeatureDataEnum:
           err = (*iter)->GetValue(strValue);
-          if (VmbErrorSuccess == err) {
-            std::cout << strValue << " str Enum" << std::endl;
+          if (err == VmbErrorSuccess) {
+            std::cout << strValue << " (string enum)" << std::endl;
           }
           break;
           case VmbFeatureDataFloat:
           double fValue;
           err = (*iter)->GetValue(fValue);
           {
-            std::cout << fValue << " float" << std::endl;
+            std::cout << fValue << " (float)" << std::endl;
           }
           break;
           case VmbFeatureDataInt:
           err = (*iter)->GetValue(nValue);
           {
-            std::cout << nValue << " int" << std::endl;
+            std::cout << nValue << " (int)" << std::endl;
           }
           break;
           case VmbFeatureDataString:
           err = (*iter)->GetValue(strValue);
           {
-            std::cout << strValue << " str" << std::endl;
+            std::cout << strValue << " (string)" << std::endl;
           }
           break;
           case VmbFeatureDataCommand:
@@ -861,7 +802,7 @@ void AvtVimbaCamera::printAllCameraFeatures(const CameraPtr& camera) {
           std::cout << "[None]" << std::endl;
           break;
         }
-        if (VmbErrorSuccess != err) {
+        if (err != VmbErrorSuccess) {
           std::cout << "Could not get feature value. Error code: "
                     << err << std::endl;
         }
@@ -876,257 +817,179 @@ void AvtVimbaCamera::printAllCameraFeatures(const CameraPtr& camera) {
 
 /** Change the Trigger configuration */
 void AvtVimbaCamera::updateAcquisitionConfig(Config& config) {
-  bool changed = false;
+  if (on_init_) {
+    ROS_INFO("Updating Acquisition and Trigger config:");
+  }
+
   if (config.acquisition_mode != config_.acquisition_mode || on_init_) {
-    changed = true;
-    setFeatureValue("AcquisitionMode", config.acquisition_mode.c_str());
+    configureFeature("AcquisitionMode", config.acquisition_mode, config.acquisition_mode);
   }
   if (config.acquisition_rate != config_.acquisition_rate || on_init_) {
-    changed = true;
-    double acquisition_frame_rate_limit;
-    getFeatureValue("AcquisitionFrameRateLimit", acquisition_frame_rate_limit);
-    if (acquisition_frame_rate_limit < config.acquisition_rate) {
-      double rate = (double)floor(acquisition_frame_rate_limit);
-      ROS_WARN_STREAM("Max frame rate allowed: " << acquisition_frame_rate_limit
-                      << ". Setting " << rate << "...");
-      config.acquisition_rate = rate;
-    }
-    setFeatureValue("AcquisitionFrameRateAbs",
-                    static_cast<float>(config.acquisition_rate));
+    configureFeature("AcquisitionFrameRateAbs",
+                    static_cast<float>(config.acquisition_rate), config.acquisition_rate);
   }
   if (config.trigger_mode != config_.trigger_mode || on_init_) {
-    changed = true;
-    setFeatureValue("TriggerMode", config.trigger_mode.c_str());
+    configureFeature("TriggerMode", config.trigger_mode, config.trigger_mode);
   }
   if (config.trigger_selector != config_.trigger_selector || on_init_) {
-    changed = true;
-    setFeatureValue("TriggerSelector", config.trigger_selector.c_str());
+    configureFeature("TriggerSelector", config.trigger_selector, config.trigger_selector);
   }
   if (config.trigger_source != config_.trigger_source || on_init_) {
-    changed = true;
-    setFeatureValue("TriggerSource", config.trigger_source.c_str());
+    configureFeature("TriggerSource", config.trigger_source, config.trigger_source);
   }
   if (config.trigger_activation != config_.trigger_activation || on_init_) {
-    changed = true;
-    setFeatureValue("TriggerActivation", config.trigger_activation.c_str());
+    configureFeature("TriggerActivation", config.trigger_activation, config.trigger_activation);
   }
   if (config.trigger_delay != config_.trigger_delay || on_init_) {
-    changed = true;
-    setFeatureValue("TriggerDelayAbs", config.trigger_delay);
+    configureFeature("TriggerDelayAbs", static_cast<float>(config.trigger_delay), config.trigger_delay);
   }
   if (config.action_device_key != config_.action_device_key || on_init_) {
-    changed = true;
-    setFeatureValue("ActionDeviceKey", config.action_device_key);
+    configureFeature("ActionDeviceKey", static_cast<VmbInt64_t>(config.action_device_key), config.action_device_key);
   }
   if (config.action_group_key != config_.action_group_key || on_init_) {
-    changed = true;
-    setFeatureValue("ActionGroupKey", config.action_group_key);
+    configureFeature("ActionGroupKey", static_cast<VmbInt64_t>(config.action_group_key), config.action_group_key);
   }
   if (config.action_group_mask != config_.action_group_mask || on_init_) {
-    changed = true;
-    setFeatureValue("ActionGroupMask", config.action_group_mask);
-  }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New Acquisition and Trigger config (" << frame_id_ << ") : "
-      << "\n\tAcquisitionMode         : " << config.acquisition_mode   << " was " << config_.acquisition_mode
-      << "\n\tAcquisitionFrameRateAbs : " << config.acquisition_rate   << " was " << config_.acquisition_rate
-      << "\n\tTriggerMode             : " << config.trigger_mode       << " was " << config_.trigger_mode
-      << "\n\tTriggerSource           : " << config.trigger_source     << " was " << config_.trigger_source
-      << "\n\tTriggerSelector         : " << config.trigger_selector   << " was " << config_.trigger_selector
-      << "\n\tTriggerActivation       : " << config.trigger_activation << " was " << config_.trigger_activation
-      << "\n\tTriggerDelayAbs         : " << config.trigger_delay      << " was " << config_.trigger_delay);
+    configureFeature("ActionGroupMask", static_cast<VmbInt64_t>(config.action_group_mask), config.action_group_mask);
   }
 }
 
 /* Update the Iris config */
 void AvtVimbaCamera::updateIrisConfig(Config& config) {
-  bool changed = false;
+  if (on_init_) {
+    ROS_INFO("Updating Iris config:");
+  }
+
   if (config.iris_auto_target != config_.iris_auto_target || on_init_) {
-    changed = true;
-    setFeatureValue("IrisAutoTarget", static_cast<VmbInt64_t>(config.iris_auto_target));
+    configureFeature("IrisAutoTarget", static_cast<VmbInt64_t>(config.iris_auto_target), config.iris_auto_target);
   }
   if (config.iris_mode != config_.iris_mode || on_init_) {
-    changed = true;
-    setFeatureValue("IrisMode", config.iris_mode.c_str());
+    configureFeature("IrisMode", config.iris_mode, config.iris_mode);
   }
   if (config.iris_video_level_max != config_.iris_video_level_max || on_init_) {
-    changed = true;
-    setFeatureValue("IrisVideoLevelMax", static_cast<VmbInt64_t>(config.iris_video_level_max));
+    configureFeature("IrisVideoLevelMax", static_cast<VmbInt64_t>(config.iris_video_level_max), config.iris_video_level_max);
   }
   if (config.iris_video_level_min != config_.iris_video_level_min || on_init_) {
-    changed = true;
-    setFeatureValue("IrisVideoLevelMin",
-                    static_cast<VmbInt64_t>(config.iris_video_level_min));
-  }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New Iris config (" << frame_id_ << ") : "
-      << "\n\tIrisAutoTarget    : " << config.iris_auto_target          << " was " << config_.iris_auto_target
-      << "\n\tIrisMode          : " << config.iris_mode                 << " was " << config_.iris_mode
-      << "\n\tIrisVideoLevelMax : " << config.iris_video_level_max      << " was " << config_.iris_video_level_max
-      << "\n\tIrisVideoLevelMin : " << config.iris_video_level_min      << " was " << config_.iris_video_level_min
-    );
+    configureFeature("IrisVideoLevelMin",
+                    static_cast<VmbInt64_t>(config.iris_video_level_min), config.iris_video_level_min);
   }
 }
 
-
 /** Change the Exposure configuration */
 void AvtVimbaCamera::updateExposureConfig(Config& config) {
-  bool changed = false;
+  if (on_init_) {
+    ROS_INFO("Updating Exposure config:");
+  }
+
   if (config.exposure != config_.exposure || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureTimeAbs", static_cast<float>(config.exposure));
+    configureFeature("ExposureTimeAbs", static_cast<float>(config.exposure), config.exposure);
   }
   if (config.exposure_auto != config_.exposure_auto || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAuto", config.exposure_auto.c_str());
+    configureFeature("ExposureAuto", config.exposure_auto, config.exposure_auto);
   }
   if (config.exposure_auto_alg != config_.exposure_auto_alg || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoAlg", config.exposure_auto_alg.c_str());
+    configureFeature("ExposureAutoAlg", config.exposure_auto_alg, config.exposure_auto_alg);
   }
   if (config.exposure_auto_tol != config_.exposure_auto_tol || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoAdjustTol",
-                    static_cast<VmbInt64_t>(config.exposure_auto_tol));
+    configureFeature("ExposureAutoAdjustTol",
+                    static_cast<VmbInt64_t>(config.exposure_auto_tol), config.exposure_auto_tol);
   }
   if (config.exposure_auto_max != config_.exposure_auto_max || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoMax",
-                    static_cast<VmbInt64_t>(config.exposure_auto_max));
+    configureFeature("ExposureAutoMax",
+                    static_cast<VmbInt64_t>(config.exposure_auto_max), config.exposure_auto_max);
   }
   if (config.exposure_auto_min != config_.exposure_auto_min || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoMin",
-                    static_cast<VmbInt64_t>(config.exposure_auto_min));
+    configureFeature("ExposureAutoMin",
+                    static_cast<VmbInt64_t>(config.exposure_auto_min), config.exposure_auto_min);
   }
   if (config.exposure_auto_outliers != config_.exposure_auto_outliers || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoOutliers",
-                    static_cast<VmbInt64_t>(config.exposure_auto_outliers));
+    configureFeature("ExposureAutoOutliers",
+                    static_cast<VmbInt64_t>(config.exposure_auto_outliers), config.exposure_auto_outliers);
   }
   if (config.exposure_auto_rate != config_.exposure_auto_rate || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoRate",
-                    static_cast<VmbInt64_t>(config.exposure_auto_rate));
+    configureFeature("ExposureAutoRate",
+                    static_cast<VmbInt64_t>(config.exposure_auto_rate), config.exposure_auto_rate);
   }
   if (config.exposure_auto_target != config_.exposure_auto_target || on_init_) {
-    changed = true;
-    setFeatureValue("ExposureAutoTarget",
-                    static_cast<VmbInt64_t>(config.exposure_auto_target));
-  }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New Exposure config (" << frame_id_ << ") : "
-      << "\n\tExposureTimeAbs       : " << config.exposure               << " was " << config_.exposure
-      << "\n\tExposureAuto          : " << config.exposure_auto          << " was " << config_.exposure_auto
-      << "\n\tExposureAutoAdjustTol : " << config.exposure_auto_tol      << " was " << config_.exposure_auto_tol
-      << "\n\tExposureAutoMax       : " << config.exposure_auto_max      << " was " << config_.exposure_auto_max
-      << "\n\tExposureAutoMin       : " << config.exposure_auto_min      << " was " << config_.exposure_auto_min
-      << "\n\tExposureAutoOutliers  : " << config.exposure_auto_outliers << " was " << config_.exposure_auto_outliers
-      << "\n\tExposureAutoRate      : " << config.exposure_auto_rate     << " was " << config_.exposure_auto_rate
-      << "\n\tExposureAutoTarget    : " << config.exposure_auto_target   << " was " << config_.exposure_auto_target);
+    configureFeature("ExposureAutoTarget",
+                    static_cast<VmbInt64_t>(config.exposure_auto_target), config.exposure_auto_target);
   }
 }
 
 /** Change the Gain configuration */
 void AvtVimbaCamera::updateGainConfig(Config& config) {
-  bool changed = false;
+  if (on_init_) {
+    ROS_INFO("Updating Gain config:");
+  }
+
   if (config.gain != config_.gain || on_init_) {
-    changed = true;
-    setFeatureValue("Gain", static_cast<float>(config.gain));
+    configureFeature("Gain", static_cast<float>(config.gain), config.gain);
   }
   if (config.gain_auto != config_.gain_auto || on_init_) {
-    changed = true;
-    setFeatureValue("GainAuto", config.gain_auto.c_str());
+    configureFeature("GainAuto", config.gain_auto, config.gain_auto);
   }
   if (config.gain_auto_adjust_tol != config_.gain_auto_adjust_tol || on_init_) {
-    changed = true;
-    setFeatureValue("GainAutoAdjustTol",
-                    static_cast<VmbInt64_t>(config.gain_auto_adjust_tol));
+    configureFeature("GainAutoAdjustTol",
+                    static_cast<VmbInt64_t>(config.gain_auto_adjust_tol), config.gain_auto_adjust_tol);
   }
   if (config.gain_auto_max != config_.gain_auto_max || on_init_) {
-    changed = true;
-    setFeatureValue("GainAutoMax", static_cast<float>(config.gain_auto_max));
+    configureFeature("GainAutoMax", static_cast<float>(config.gain_auto_max), config.gain_auto_max);
   }
   if (config.gain_auto_min != config_.gain_auto_min || on_init_) {
-    changed = true;
-    setFeatureValue("GainAutoMin", static_cast<float>(config.gain_auto_min));
+    configureFeature("GainAutoMin", static_cast<float>(config.gain_auto_min), config.gain_auto_min);
   }
   if (config.gain_auto_outliers != config_.gain_auto_outliers || on_init_) {
-    changed = true;
-    setFeatureValue("GainAutoOutliers",
-                    static_cast<VmbInt64_t>(config.gain_auto_outliers));
+    configureFeature("GainAutoOutliers",
+                    static_cast<VmbInt64_t>(config.gain_auto_outliers), config.gain_auto_outliers);
   }
   if (config.gain_auto_rate != config_.gain_auto_rate || on_init_) {
-    changed = true;
-    setFeatureValue("GainAutoRate", static_cast<VmbInt64_t>(config.gain_auto_rate));
+    configureFeature("GainAutoRate", static_cast<VmbInt64_t>(config.gain_auto_rate), config.gain_auto_rate);
   }
   if (config.gain_auto_target != config_.gain_auto_target || on_init_) {
-    changed = true;
-    setFeatureValue("GainAutoTarget", static_cast<VmbInt64_t>(config.gain_auto_target));
-  }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New Gain config (" << frame_id_ << ") : "
-      << "\n\tGain              : " << config.gain               << " was " << config_.gain
-      << "\n\tGainAuto          : " << config.gain_auto          << " was " << config_.gain_auto
-      << "\n\tGainAutoAdjustTol : " << config.gain_auto_adjust_tol << " was " << config_.gain_auto_adjust_tol
-      << "\n\tGainAutoMax       : " << config.gain_auto_max      << " was " << config_.gain_auto_max
-      << "\n\tGainAutoMin       : " << config.gain_auto_min      << " was " << config_.gain_auto_min
-      << "\n\tGainAutoOutliers  : " << config.gain_auto_outliers << " was " << config_.gain_auto_outliers
-      << "\n\tGainAutoRate      : " << config.gain_auto_rate     << " was " << config_.gain_auto_rate
-      << "\n\tGainAutoTarget    : " << config.gain_auto_target   << " was " << config_.gain_auto_target);
+    configureFeature("GainAutoTarget", static_cast<VmbInt64_t>(config.gain_auto_target), config.gain_auto_target);
   }
 }
 
 /** Change the White Balance configuration */
 void AvtVimbaCamera::updateWhiteBalanceConfig(Config& config){
-  bool changed = false;
+  if (on_init_) {
+    ROS_INFO("Updating White Balance config:");
+  }
+
   if (config.balance_ratio_abs != config_.balance_ratio_abs || on_init_) {
-    changed = true;
-    setFeatureValue("BalanceRatioAbs", static_cast<float>(config.balance_ratio_abs));
+    configureFeature("BalanceRatioAbs", static_cast<float>(config.balance_ratio_abs), config.balance_ratio_abs);
   }
   if (config.balance_ratio_selector != config_.balance_ratio_selector || on_init_) {
-    changed = true;
-    setFeatureValue("BalanceRatioSelector", config.balance_ratio_selector.c_str());
+    configureFeature("BalanceRatioSelector", config.balance_ratio_selector, config.balance_ratio_selector);
   }
   if (config.whitebalance_auto != config_.whitebalance_auto || on_init_) {
-    changed = true;
-    setFeatureValue("BalanceWhiteAuto", config.whitebalance_auto.c_str());
+    configureFeature("BalanceWhiteAuto", config.whitebalance_auto, config.whitebalance_auto);
   }
   if (config.whitebalance_auto_tol != config_.whitebalance_auto_tol || on_init_) {
-    changed = true;
-    setFeatureValue("BalanceWhiteAutoAdjustTol", static_cast<VmbInt64_t>(config.whitebalance_auto_tol));
+    configureFeature("BalanceWhiteAutoAdjustTol", static_cast<VmbInt64_t>(config.whitebalance_auto_tol), config.whitebalance_auto_tol);
   }
   if (config.whitebalance_auto_rate != config_.whitebalance_auto_rate || on_init_) {
-    changed = true;
-    setFeatureValue("BalanceWhiteAutoRate", static_cast<VmbInt64_t>(config.whitebalance_auto_rate));
-  }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New White Balance config (" << frame_id_ << ") : "
-      << "\n\tBalanceRatioAbs           : " << config.balance_ratio_abs      << " was " << config_.balance_ratio_abs
-      << "\n\tBalanceRatioSelector      : " << config.balance_ratio_selector << " was " << config_.balance_ratio_selector
-      << "\n\tBalanceWhiteAuto          : " << config.whitebalance_auto      << " was " << config_.whitebalance_auto
-      << "\n\tBalanceWhiteAutoAdjustTol : " << config.whitebalance_auto_tol  << " was " << config_.whitebalance_auto_tol
-      << "\n\tBalanceWhiteAutoRate      : " << config.whitebalance_auto_rate << " was " << config_.whitebalance_auto_rate);
+    configureFeature("BalanceWhiteAutoRate", static_cast<VmbInt64_t>(config.whitebalance_auto_rate), config.whitebalance_auto_rate);
   }
 }
 
 /** Change the Binning and Decimation configuration */
 void AvtVimbaCamera::updatePtpModeConfig(Config& config) {
-  bool changed = false;
-  if (config.ptp_mode != config_.ptp_mode || on_init_) {
-    changed = true;
-    setFeatureValue("PtpMode", config.ptp_mode.c_str());
+  if (on_init_) {
+    ROS_INFO("Updating PTP config:");
   }
 
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New PTP config (" << frame_id_ << ") : "
-      << "\n\tPtpMode                   : " << config.ptp_mode << " was " << config_.ptp_mode);
+  if (config.ptp_mode != config_.ptp_mode || on_init_) {
+    // configureFeature("PtpMode", config.ptp_mode, config.ptp_mode);
+    configureFeature("PtpMode", config.ptp_mode, config.ptp_mode);
   }
 }
 
 /** Change the Binning and Decimation configuration */
 void AvtVimbaCamera::updateImageModeConfig(Config& config) {
-  ROS_INFO("Updating Image Mode config:");
+  if (on_init_) {
+    ROS_INFO("Updating Image Mode config:");
+  }
 
   if (config.decimation_x != config_.decimation_x || on_init_) {
     configureFeature("DecimationHorizontal", static_cast<VmbInt64_t>(config.decimation_x), config.decimation_x);
@@ -1144,7 +1007,9 @@ void AvtVimbaCamera::updateImageModeConfig(Config& config) {
 
 /** Change the ROI configuration */
 void AvtVimbaCamera::updateROIConfig(Config& config) {
-  ROS_INFO("Updating ROI config:");
+  if (on_init_) {
+    ROS_INFO("Updating ROI config:");
+  }
 
   if (config.width != config_.width || on_init_) {
     configureFeature("Width", static_cast<VmbInt64_t>(config.width), config.width);
@@ -1162,61 +1027,47 @@ void AvtVimbaCamera::updateROIConfig(Config& config) {
 
 /** Change the Bandwidth configuration */
 void AvtVimbaCamera::updateBandwidthConfig(Config& config) {
-  bool changed = false;
-  if (config.stream_bytes_per_second
-      != config_.stream_bytes_per_second || on_init_) {
-    changed = true;
-    setFeatureValue("StreamBytesPerSecond",
-                    static_cast<VmbInt64_t>(config.stream_bytes_per_second));
+  if (on_init_) {
+    ROS_INFO("Updating Bandwidth config:");
   }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New Bandwidth config (" << frame_id_ << ") : "
-      << "\n\tStreamBytesPerSecond : " << config.stream_bytes_per_second << " was " << config_.stream_bytes_per_second);
+
+  if (config.stream_bytes_per_second != config_.stream_bytes_per_second || on_init_) {
+    configureFeature("StreamBytesPerSecond",
+                    static_cast<VmbInt64_t>(config.stream_bytes_per_second), config.stream_bytes_per_second);
   }
 }
 
 /** Change the Pixel Format configuration */
 void AvtVimbaCamera::updatePixelFormatConfig(Config& config) {
-  bool changed = false;
-  if (config.pixel_format != config_.pixel_format || on_init_) {
-    changed = true;
-    setFeatureValue("PixelFormat", config.pixel_format.c_str());
+  if (on_init_) {
+    ROS_INFO("Updating PixelFormat config:");
   }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New PixelFormat config (" << frame_id_ << ") : "
-      << "\n\tPixelFormat : " << config.pixel_format << " was " << config_.pixel_format);
+
+  if (config.pixel_format != config_.pixel_format || on_init_) {
+    configureFeature("PixelFormat", config.pixel_format, config.pixel_format);
   }
 }
 
 /** Change the GPIO configuration */
 void AvtVimbaCamera::updateGPIOConfig(Config& config) {
-  bool changed = false;
+  if (on_init_) {
+    ROS_INFO("Updating GPIO config:");
+  }
   if (config.sync_in_selector
       != config_.sync_in_selector || on_init_) {
-    changed = true;
-    setFeatureValue("SyncInSelector", config.sync_in_selector.c_str());
+    configureFeature("SyncInSelector", config.sync_in_selector, config.sync_in_selector);
   }
   if (config.sync_out_polarity
       != config_.sync_out_polarity || on_init_) {
-    changed = true;
-    setFeatureValue("SyncOutPolarity", config.sync_out_polarity.c_str());
+    configureFeature("SyncOutPolarity", config.sync_out_polarity, config.sync_out_polarity);
   }
   if (config.sync_out_selector
       != config_.sync_out_selector || on_init_) {
-    changed = true;
-    setFeatureValue("SyncOutSelector", config.sync_out_selector.c_str());
+    configureFeature("SyncOutSelector", config.sync_out_selector, config.sync_out_selector);
   }
   if (config.sync_out_source
       != config_.sync_out_source || on_init_) {
-    changed = true;
-    setFeatureValue("SyncOutSource", config.sync_out_source.c_str());
-  }
-  if(changed && show_debug_prints_){
-    ROS_INFO_STREAM("New GPIO config (" << frame_id_ << ") : "
-      << "\n\tSyncInSelector  : " << config.sync_in_selector  << " was " << config_.sync_in_selector
-      << "\n\tSyncOutPolarity : " << config.sync_out_polarity << " was " << config_.sync_out_polarity
-      << "\n\tSyncOutSelector : " << config.sync_out_selector << " was " << config_.sync_out_selector
-      << "\n\tSyncOutSource   : " << config.sync_out_source   << " was " << config_.sync_out_source);
+    configureFeature("SyncOutSource", config.sync_out_source, config.sync_out_source);
   }
 }
 
