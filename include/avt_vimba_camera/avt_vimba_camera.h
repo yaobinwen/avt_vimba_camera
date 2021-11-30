@@ -42,19 +42,18 @@
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <diagnostic_updater/publisher.h>
 
-#include <boost/function.hpp>
-#include <boost/thread.hpp>
-
 #include <string>
+#include <mutex>
 
-using AVT::VmbAPI::VimbaSystem;
 using AVT::VmbAPI::CameraPtr;
 using AVT::VmbAPI::FramePtr;
 using AVT::VmbAPI::IFrameObserverPtr;
+using AVT::VmbAPI::VimbaSystem;
 
-namespace avt_vimba_camera {
-
-enum FrameStartTriggerMode {
+namespace avt_vimba_camera
+{
+enum FrameStartTriggerMode
+{
   Freerun,
   FixedRate,
   Software,
@@ -66,7 +65,8 @@ enum FrameStartTriggerMode {
   Action1
 };
 
-enum CameraState {
+enum CameraState
+{
   OPENING,
   IDLE,
   CAMERA_NOT_FOUND,
@@ -75,37 +75,43 @@ enum CameraState {
   OK
 };
 
-class AvtVimbaCamera {
- public:
+class AvtVimbaCamera
+{
+public:
+  typedef avt_vimba_camera::AvtVimbaCameraConfig Config;
+  typedef std::function<void(const FramePtr)> frameCallbackFunc;
+
   AvtVimbaCamera();
   AvtVimbaCamera(const std::string& name);
-  void start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id, bool print_all_features = false);
-  void stop();
-  double getTimestamp(void);
-  double getTimestampRealTime(VmbUint64_t timestamp_ticks);
-  bool resetTimestamp(void);
-  double getDeviceTemp(void);
 
-  CameraPtr getCameraPtr(void) {
-    return vimba_camera_ptr_;
+  void start(const std::string& ip_str, const std::string& guid_str, const std::string& frame_id,
+             bool print_all_features = false);
+  void stop();
+
+  void updateConfig(Config& config);
+  void startImaging();
+  void stopImaging();
+
+  // Utility functions
+  double getTimestampRealTime(VmbUint64_t timestamp_ticks);
+  bool isOpened()
+  {
+    return opened_;
   }
 
+  // Getters
+  double getTimestamp();
+  double getDeviceTemp();
   int getSensorWidth();
   int getSensorHeight();
 
-  // Pass callback function pointer
-  typedef boost::function<void (const FramePtr)> frameCallbackFunc;
-  void setCallback(frameCallbackFunc callback = &avt_vimba_camera::AvtVimbaCamera::defaultFrameCallback) {
+  // Setters
+  void setCallback(frameCallbackFunc callback)
+  {
     userFrameCallback = callback;
   }
 
-  typedef avt_vimba_camera::AvtVimbaCameraConfig Config;
-  void updateConfig(Config& config);
-  void startImaging(void);
-  void stopImaging(void);
-  bool isOpened(void) { return opened_; }
-
- private:
+private:
   Config config_;
 
   AvtVimbaApi api_;
@@ -115,48 +121,37 @@ class AvtVimbaCamera {
   CameraPtr vimba_camera_ptr_;
   // Current frame
   FramePtr vimba_frame_ptr_;
-  // The max width
-  VmbInt64_t vimba_camera_max_width_;
-  // The max height
-  VmbInt64_t vimba_camera_max_height_;
   // Tick frequency of the on-board clock. Equal to 1 GHz when PTP is in use.
   VmbInt64_t vimba_timestamp_tick_freq_ = 1;
 
   // Mutex
-  boost::mutex config_mutex_;
+  std::mutex config_mutex_;
 
+  CameraState camera_state_;
   bool opened_;
   bool streaming_;
   bool on_init_;
   std::string name_;
-
-  diagnostic_updater::Updater updater_;
-  CameraState camera_state_;
-  std::string diagnostic_msg_;
-
-  // ROS params
-  int num_frames_;
   std::string guid_;
   std::string frame_id_;
-  std::string trigger_source_;
-  int trigger_source_int_;
+
+  diagnostic_updater::Updater updater_;
+  std::string diagnostic_msg_;
 
   CameraPtr openCamera(const std::string& id_str, bool print_all_features);
 
   frameCallbackFunc userFrameCallback;
   void frameCallback(const FramePtr vimba_frame_ptr);
-  void defaultFrameCallback(const FramePtr vimba_frame_ptr) {
-    std::cout << "[AvtVimbaCamera] No frame callback provided." << std::endl;
-  }
 
-  template<typename T>
+  template <typename T>
   VmbErrorType setFeatureValue(const std::string& feature_str, const T& val);
-  template<typename Vimba_Type, typename Std_Type>
-  void configureFeature(const std::string& feature_str, const Vimba_Type& val_in, Std_Type& val_out);
-  void configureFeature(const std::string& feature_str, const std::string& val_in, std::string& val_out);
-  template<typename T>
+  template <typename T>
   bool getFeatureValue(const std::string& feature_str, T& val);
   bool getFeatureValue(const std::string& feature_str, std::string& val);
+  template <typename Vimba_Type, typename Std_Type>
+  void configureFeature(const std::string& feature_str, const Vimba_Type& val_in, Std_Type& val_out);
+  void configureFeature(const std::string& feature_str, const std::string& val_in, std::string& val_out);
+
   bool runCommand(const std::string& command_str);
   int getTriggerModeInt(std::string mode_str);
   void printAllCameraFeatures(const CameraPtr& camera);
@@ -173,8 +168,7 @@ class AvtVimbaCamera {
   void updateGPIOConfig(Config& config);
   void updateIrisConfig(Config& config);
 
-  void getCurrentState(diagnostic_updater::DiagnosticStatusWrapper &stat);
-
+  void getCurrentState(diagnostic_updater::DiagnosticStatusWrapper& stat);
 };
-}
+}  // namespace avt_vimba_camera
 #endif

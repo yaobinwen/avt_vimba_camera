@@ -46,18 +46,17 @@
 
 #include <string>
 
-namespace avt_vimba_camera {
-class MonoCamera {
- public:
+namespace avt_vimba_camera
+{
+class MonoCamera
+{
+public:
   MonoCamera(ros::NodeHandle& nh, ros::NodeHandle& nhp);
   ~MonoCamera(void);
 
- private:
+private:
   AvtVimbaApi api_;
   AvtVimbaCamera cam_;
-
-  // diagnostic_updater::Updater updater_;
-  // diagnostic_updater::TopicDiagnostic* pub_freq_;
 
   ros::NodeHandle nh_;
   ros::NodeHandle nhp_;
@@ -73,7 +72,7 @@ class MonoCamera {
   image_transport::ImageTransport it_;
   image_transport::CameraPublisher pub_;
 
-  boost::shared_ptr<camera_info_manager::CameraInfoManager> info_man_;
+  std::shared_ptr<camera_info_manager::CameraInfoManager> info_man_;
 
   // Dynamic reconfigure
   typedef avt_vimba_camera::AvtVimbaCameraConfig Config;
@@ -87,5 +86,5 @@ class MonoCamera {
   void configure(Config& newconfig, uint32_t level);
   void updateCameraInfo(const Config& config);
 };
-}
+}  // namespace avt_vimba_camera
 #endif
