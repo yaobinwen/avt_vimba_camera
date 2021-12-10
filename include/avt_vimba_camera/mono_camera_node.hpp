@@ -30,54 +30,45 @@
 /// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 /// THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef SYNC_H
-#define SYNC_H
+#ifndef MONO_CAMERA_H
+#define MONO_CAMERA_H
 
-#include <ros/ros.h>
-#include <sensor_msgs/Image.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/time_synchronizer.h>
-#include <message_filters/sync_policies/approximate_time.h>
-#include <image_transport/subscriber_filter.h>
-#include <std_msgs/String.h>
+#include "avt_vimba_camera/avt_vimba_camera.hpp"
+#include "avt_vimba_camera/avt_vimba_api.hpp"
 
-using namespace std;
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <camera_info_manager/camera_info_manager.hpp>
+#include <image_transport/image_transport.hpp>
+
+#include <string>
 
 namespace avt_vimba_camera
 {
-class Sync
+class MonoCameraNode : public rclcpp::Node
 {
 public:
-  Sync(ros::NodeHandle nh, ros::NodeHandle nhp);
-  void run();
-
-protected:
-  void msgsCallback(const sensor_msgs::ImageConstPtr& l_img_msg, const sensor_msgs::ImageConstPtr& r_img_msg,
-                    const sensor_msgs::CameraInfoConstPtr& l_info_msg,
-                    const sensor_msgs::CameraInfoConstPtr& r_info_msg);
-
-  void syncCallback(const ros::TimerEvent&);
+  MonoCameraNode();
+  ~MonoCameraNode();
+  void start();
 
 private:
-  // Node handles
-  ros::NodeHandle nh_;
-  ros::NodeHandle nhp_;
+  AvtVimbaApi api_;
+  AvtVimbaCamera cam_;
 
-  bool init_;               //!> True when node is initialized.
-  double last_ros_sync_;    //!> Last ros time sync
-  double timer_period_;     //!> Timer period
-  double max_unsync_time_;  //!> Maximum time without sync
-  ros::Timer sync_timer_;   //!> Timer to check the image sync
-  string camera_;           //!> Camera name
+  std::string ip_;
+  std::string guid_;
+  std::string camera_info_url_;
+  std::string frame_id_;
+  bool use_measurement_time_;
+  int32_t ptp_offset_;
 
-  // Topic sync
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image,
-                                                          sensor_msgs::CameraInfo, sensor_msgs::CameraInfo>
-      SyncPolicy;
-  typedef message_filters::Synchronizer<SyncPolicy> SyncType;
+  image_transport::CameraPublisher camera_info_pub_;
+  std::shared_ptr<camera_info_manager::CameraInfoManager> info_man_;
 
-  // Image transport
-  image_transport::ImageTransport it_;
+  void loadParams();
+  void frameCallback(const FramePtr& vimba_frame_ptr);
 };
 }  // namespace avt_vimba_camera
 #endif
