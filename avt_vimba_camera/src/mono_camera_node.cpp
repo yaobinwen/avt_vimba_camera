@@ -30,7 +30,11 @@
 /// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 /// THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "avt_vimba_camera/mono_camera_node.hpp"
+#include <thread>
+
+#include <avt_vimba_camera/mono_camera_node.hpp>
+#include <avt_vimba_camera_msgs/srv/load_settings.hpp>
+#include <avt_vimba_camera_msgs/srv/save_settings.hpp>
 
 using namespace std::placeholders;
 
@@ -46,6 +50,9 @@ MonoCameraNode::MonoCameraNode() : Node("camera"), api_(this->get_logger()), cam
 
   start_srv_ = create_service<std_srvs::srv::Trigger>("~/start_stream", std::bind(&MonoCameraNode::startSrvCallback, this, _1, _2, _3));
   stop_srv_ = create_service<std_srvs::srv::Trigger>("~/stop_stream", std::bind(&MonoCameraNode::stopSrvCallback, this, _1, _2, _3));
+
+  load_srv_ = create_service<avt_vimba_camera_msgs::srv::LoadSettings>("~/load_settings", std::bind(&MonoCameraNode::loadSrvCallback, this, _1, _2, _3));
+  save_srv_ = create_service<avt_vimba_camera_msgs::srv::SaveSettings>("~/save_settings", std::bind(&MonoCameraNode::saveSrvCallback, this, _1, _2, _3));
 
   loadParams();
 }
@@ -137,4 +144,37 @@ void MonoCameraNode::stopSrvCallback(const std::shared_ptr<rmw_request_id_t> req
   res->success = state != CameraState::ERROR;
 }
 
+void MonoCameraNode::loadSrvCallback(const std::shared_ptr<rmw_request_id_t> request_header,
+                                     const avt_vimba_camera_msgs::srv::LoadSettings::Request::SharedPtr req,
+                                     avt_vimba_camera_msgs::srv::LoadSettings::Response::SharedPtr res) 
+{
+  (void)request_header;
+  auto extension = req->input_path.substr(req->input_path.find_last_of(".") + 1);
+  if (extension != "xml")
+  {
+    RCLCPP_WARN(this->get_logger(), "Invalid file extension. Only .xml is supported.");
+    res->result = false;
+  } 
+  else 
+  {
+    res->result = cam_.saveCameraSettings(req->input_path);
+  }
+}
+
+void MonoCameraNode::saveSrvCallback(const std::shared_ptr<rmw_request_id_t> request_header,
+                                     const avt_vimba_camera_msgs::srv::SaveSettings::Request::SharedPtr req,
+                                     avt_vimba_camera_msgs::srv::SaveSettings::Response::SharedPtr res) 
+{
+  (void)request_header;
+  auto extension = req->output_path.substr(req->output_path.find_last_of(".") + 1);
+  if (extension != "xml")
+  {
+    RCLCPP_WARN(this->get_logger(), "Invalid file extension. Only .xml is supported.");
+    res->result = false;
+  } 
+  else 
+  {
+    res->result = cam_.saveCameraSettings(req->output_path);
+  }
+}
 }  // namespace avt_vimba_camera
