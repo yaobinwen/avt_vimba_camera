@@ -77,7 +77,7 @@ private:
   // Dynamic reconfigure
   typedef avt_vimba_camera::AvtVimbaCameraConfig Config;
   typedef dynamic_reconfigure::Server<Config> ReconfigureServer;
-  ReconfigureServer reconfigure_server_;
+  ReconfigureServer reconfigure_server_{nhp_};
 
   // Camera configuration
   Config camera_config_;

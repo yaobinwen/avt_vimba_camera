@@ -80,7 +80,7 @@
 
   <!-- Image processing -->
   <include if="$(arg image_proc)" ns="$(arg name)" file="$(find image_proc)/launch/image_proc.launch">
-    <arg name="manager" value="avt_vimba_nodelet_manager"/>
+    <arg name="manager" value="/avt_vimba_nodelet_manager"/>
   </include>
 
   <!-- The mono camera nodelet -->
