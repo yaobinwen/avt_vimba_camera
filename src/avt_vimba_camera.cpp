@@ -802,6 +802,8 @@ void AvtVimbaCamera::updateConfig(Config& config)
   diagnostic_msg_ = "Updating configuration";
 
   updateExposureConfig(config);
+  updateGammaConfig(config);
+  updateDspsubregionConfig(config);
   updateGainConfig(config);
   updateWhiteBalanceConfig(config);
   updateImageModeConfig(config);
@@ -948,6 +950,62 @@ void AvtVimbaCamera::updateExposureConfig(Config& config)
     configureFeature("ExposureAutoTarget", static_cast<VmbInt64_t>(config.exposure_auto_target),
                      config.exposure_auto_target);
   }
+  if (config.exposure_mode != config_.exposure_mode || on_init_) {
+      configureFeature("ExposureMode", config.exposure_mode ,config.exposure_mode);
+  }
+  if (config.exposure_time_PWL1 != config_.exposure_time_PWL1 || on_init_) {
+      configureFeature("ExposureTimePWL1", static_cast<float>(config.exposure_time_PWL1), config.exposure_time_PWL1);
+  }
+  if (config.exposure_time_PWL2 != config_.exposure_time_PWL2 || on_init_) {
+      configureFeature("ExposureTimePWL2", static_cast<float>(config.exposure_time_PWL2), config.exposure_time_PWL2);
+  }
+  if (config.exposure_threshold_PWL2 != config_.exposure_threshold_PWL2 || on_init_) {
+      configureFeature("ThresholdPWL2",
+                      static_cast<VmbInt64_t>(config.exposure_threshold_PWL2), config.exposure_threshold_PWL2);
+  }
+  if (config.exposure_threshold_PWL1 != config_.exposure_threshold_PWL1 || on_init_) {
+      configureFeature("ThresholdPWL1",
+                      static_cast<VmbInt64_t>(config.exposure_threshold_PWL1), config.exposure_threshold_PWL1);
+  }
+}
+
+/** Change the Gamma configuration*/
+void AvtVimbaCamera::updateGammaConfig(Config& config)
+{
+  if (on_init_)
+  {
+    ROS_INFO("Updating Gamma config:");
+  }
+  if (config.gamma != config_.gamma || on_init_)
+  {
+    configureFeature("Gamma", static_cast<float>(config.gamma), config.gamma);
+  }
+}
+
+/** Change the DSP-Subregion configuration*/
+void AvtVimbaCamera::updateDspsubregionConfig(Config& config)
+{
+  if (on_init_)
+  {
+    ROS_INFO("Updating DSP-Subregion config:");
+  }
+
+  if (config.subregion_bottom != config_.subregion_bottom || on_init_)
+  {
+    configureFeature("DSPSubregionBottom", static_cast<VmbInt64_t>(config.subregion_bottom), config.subregion_bottom);
+  }
+  if (config.subregion_top != config_.subregion_top || on_init_)
+  {
+    configureFeature("DSPSubregionTop", static_cast<VmbInt64_t>(config.subregion_top), config.subregion_top);
+  }
+  if (config.subregion_left != config_.subregion_left || on_init_)
+  {
+    configureFeature("DSPSubregionLeft", static_cast<VmbInt64_t>(config.subregion_left), config.subregion_left);
+  }
+  if (config.subregion_right != config_.subregion_right || on_init_)
+  {
+    configureFeature("DSPSubregionRight", static_cast<VmbInt64_t>(config.subregion_right), config.subregion_right);
+  }
 }
 
 /** Change the Gain configuration */
@@ -1063,6 +1121,14 @@ void AvtVimbaCamera::updateImageModeConfig(Config& config)
   if (config.binning_y != config_.binning_y || on_init_)
   {
     configureFeature("BinningVertical", static_cast<VmbInt64_t>(config.binning_y), config.binning_y);
+  }
+  if (config.reverse_x != config_.reverse_x || on_init_)
+  {
+    configureFeature("ReverseX", static_cast<bool>(config.reverse_x), config.reverse_x);
+  }
+  if (config.reverse_y != config_.reverse_y || on_init_)
+  {
+    configureFeature("ReverseY", static_cast<bool>(config.reverse_y), config.reverse_y);
   }
 }
 

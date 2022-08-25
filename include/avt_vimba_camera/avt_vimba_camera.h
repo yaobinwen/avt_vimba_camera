@@ -143,6 +143,8 @@ private:
 
   void updateAcquisitionConfig(Config& config);
   void updateExposureConfig(Config& config);
+  void updateGammaConfig(Config& config);
+  void updateDspsubregionConfig(Config& config);
   void updateGainConfig(Config& config);
   void updateWhiteBalanceConfig(Config& config);
   void updateImageModeConfig(Config& config);
